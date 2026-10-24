@@ -9,4 +9,4 @@ This machine suppresses very fresh package versions. If an install or update fai
 
 ## Build memory
 
-Node's default heap (~2 GB here) OOMs on production builds. Build with `NODE_OPTIONS=--max-old-space-size=6144 bun run build`.
+Node's default heap (~2 GB here) OOMs on production builds. Build with the `pabuild` shell function (`~/.bashrc`), i.e. `NODE_OPTIONS=--max-old-space-size=6144 bun run build`.
