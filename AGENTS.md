@@ -17,4 +17,4 @@ Mobile Firefox has no `sidebarAction`, no `commands`, no `contextMenus`, and no 
 
 Test on device with `web-ext run --target=firefox-android` over USB debugging, or sign an unlisted build on AMO and install it from a collection — Firefox for Android does not sideload XPI files.
 
-Firefox builds now also package: `bun run build:firefox` runs `wxt zip -b firefox` and renames the fresh `build/pageassist-<version>-firefox.zip` to `build/page-assist-firefox.xpi` via `scripts/make-xpi.ts`. Use `bun run zip:firefox` when you only want the plain AMO upload artifacts.
+Firefox builds now also package: `bun run build:firefox` runs `wxt zip -b firefox` and copies the fresh `build/pageassist-<version>-firefox.zip` to `build/page-assist-firefox.xpi` via `scripts/make-xpi.ts`. The version-stamped zip stays in place next to it, together with the sources zip, because those are the AMO upload artifacts; the xpi is for loading the build locally.

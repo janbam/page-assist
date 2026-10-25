@@ -1,12 +1,13 @@
-import { existsSync, readdirSync, renameSync, statSync, unlinkSync } from "node:fs"
+import { copyFileSync, readdirSync, statSync } from "node:fs"
 
 /**
  * Turns WXT's packaged Firefox build into an installable `.xpi`.
  *
  * `wxt zip -b firefox` names its artifact `<name>-<version>-firefox.zip`, so the
- * version is baked into the filename and moves with every release. This picks
- * the newest such zip and leaves a stable `build/page-assist-firefox.xpi` beside
- * it, which is the path humans and `web-ext` can point at without guessing.
+ * version is baked into the filename and moves with every release. This copies
+ * the newest such zip to a stable `build/page-assist-firefox.xpi`, the path
+ * humans and `web-ext` can point at without guessing. The zip stays in place:
+ * that one is the AMO upload artifact.
  */
 
 const BUILD_DIR = "build"
@@ -28,11 +29,7 @@ if (archives.length === 0) {
   )
 }
 
-// Replace the previous xpi rather than fail on an existing one: it is a build
-// artifact, and keeping the old one around would silently ship the wrong build.
-if (existsSync(XPI_PATH)) {
-  unlinkSync(XPI_PATH)
-}
-
-renameSync(archives[0].path, XPI_PATH)
+// Overwrite in place: the xpi is a build artifact, and leaving an older copy
+// behind would silently ship the wrong build.
+copyFileSync(archives[0].path, XPI_PATH)
 console.log(`xpi: ${XPI_PATH}`)
