@@ -74,21 +74,38 @@ export const initPageTabTracking = () => {
   })
 
   // Seed from the tab the browser started on, so the first chat message does
-  // not need the user to switch tabs first.
+  // not need the user to switch tabs first. Only fill an empty slot: a tab
+  // switch may have been recorded while this query was in flight.
   browser.tabs
     .query({ active: true })
-    .then((tabs) => tabs.find(isPageTab))
-    .then(remember)
+    .then((tabs) => {
+      if (!lastPageTab) {
+        remember(tabs.find(isPageTab))
+      }
+    })
     .catch(() => {})
 }
 
 /**
- * Resolves the page tab to act on: the remembered one if it still exists and is
- * still a page, otherwise the active non-extension tab, otherwise nothing.
+ * Resolves the page tab to act on, preferring what the browser reports as active
+ * in the current window and falling back to the last tracked page tab.
  *
  * Must run in the background script, which owns the tab history.
  */
 export const resolvePageTab = async (): Promise<PageTab | undefined> => {
+  // The current-window answer is authoritative where windows exist: it keeps a
+  // multi-window desktop session from reading the other window's page. Android
+  // implements no windows, so this either fails or names our own chat UI, and
+  // both cases fall through to the tracked tab below.
+  const activeTabs = await browser.tabs
+    .query({ active: true, currentWindow: true })
+    .catch(() => [])
+  const activePage = activeTabs?.find(isPageTab)
+  if (activePage) {
+    remember(activePage)
+    return { id: activePage.id, url: activePage.url }
+  }
+
   if (lastPageTab) {
     // The remembered id can go stale after a tab is closed or navigates to an
     // extension page, so re-validate before handing it to callers.
@@ -100,14 +117,7 @@ export const resolvePageTab = async (): Promise<PageTab | undefined> => {
     lastPageTab = undefined
   }
 
-  // No usable history: fall back to whatever non-extension tab is in front.
-  const activeTabs = await browser.tabs.query({ active: true }).catch(() => [])
-  const candidate = activeTabs?.find(isPageTab)
-  if (!candidate) {
-    return undefined
-  }
-  remember(candidate)
-  return lastPageTab
+  return undefined
 }
 
 /**

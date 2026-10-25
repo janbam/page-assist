@@ -17,17 +17,13 @@ export default defineBackground({
     let actionIconClick: string = "webui"
     let contextMenuClick: string = "sidePanel"
 
-    // Firefox for Android ships neither a sidebar nor context menus. Both are
-    // gated on this flag once the platform is known at startup.
-    let isAndroid = false
-
     /**
-     * Brings the chat up. Desktop Firefox opens its sidebar; Android has none,
-     * so the chat opens in a tab there. The fullscreen popup on Android can only
-     * be opened by the user tapping the add-on entry, never from script.
+     * Brings the chat up from script. Desktop Firefox opens its sidebar; where
+     * no sidebar API exists (Android) it falls back to a tab, because script
+     * cannot open the action popup — that needs a real user gesture.
      */
     const openChat = async () => {
-      if (isAndroid) {
+      if (!browser.sidebarAction) {
         await browser.tabs.create({
           url: browser.runtime.getURL("/sidepanel.html")
         })
@@ -105,13 +101,12 @@ export default defineBackground({
 
     const initialize = async () => {
       try {
-        // Platform first: everything UI-related below depends on it.
+        // Platform first: the menu setup below assumes a desktop browser.
         const { os } = await browser.runtime.getPlatformInfo()
-        isAndroid = os === "android"
-        if (isAndroid) {
+        if (os === "android") {
           // No sidebar on Android, so the add-on entry opens the chat as a
           // fullscreen popup instead of the web UI.
-          browser.browserAction.setPopup({ popup: "sidepanel.html" })
+          await browser.browserAction.setPopup({ popup: "sidepanel.html" })
         }
 
         storage.watch({
@@ -259,7 +254,7 @@ export default defineBackground({
     browser.browserAction.onClicked.addListener((tab) => {
       if (actionIconClick === "webui") {
         browser.tabs.create({ url: browser.runtime.getURL("/options.html") })
-      } else {
+      } else if (browser.sidebarAction) {
         browser.sidebarAction.toggle()
       }
     })

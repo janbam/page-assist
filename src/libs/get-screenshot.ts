@@ -1,42 +1,40 @@
 import { getActivePageTab } from "@/libs/current-page-tab"
 
-const captureVisibleTab = () => {
-  const result = new Promise<string>((resolve, reject) => {
-    if (import.meta.env.BROWSER === "chrome" || import.meta.env.BROWSER === "edge") {
-      chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
-        const tab = tabs[0]
-        chrome.tabs.captureVisibleTab(null, { format: "png" }, (dataUrl) => {
-          resolve(dataUrl)
-        })
+/**
+ * Captures the visible area of the current browser window as a PNG data URL.
+ *
+ * Chromium captures directly; Firefox first asks the background for the page
+ * tab, so a session with no page open fails with a clear error instead of
+ * silently capturing the chat UI. The capture itself stays window-level: it
+ * returns whatever is visible, which is why callers only request it while a page
+ * is in front.
+ */
+const captureVisibleTab = async (): Promise<string> => {
+  if (
+    import.meta.env.BROWSER === "chrome" ||
+    import.meta.env.BROWSER === "edge"
+  ) {
+    return new Promise<string>((resolve) => {
+      chrome.tabs.captureVisibleTab(null, { format: "png" }, (dataUrl) => {
+        resolve(dataUrl)
       })
-    } else {
-      // Only capture when the background knows a page tab: with the chat in
-      // front (Android popup, or a chat tab) a window capture could return our
-      // own UI instead of the page.
-      getActivePageTab().then(async (tab) => {
-        if (!tab) {
-          reject(new Error("No page is open to capture"))
-          return
-        }
+    })
+  }
 
-        try {
-          const dataUrl = (await Promise.race([
-            browser.tabs.captureVisibleTab(null, { format: "png" }),
-            new Promise((_, timeout) =>
-              setTimeout(
-                () => timeout(new Error("Screenshot capture timed out")),
-                10000
-              )
-            )
-          ])) as string
-          resolve(dataUrl)
-        } catch (error) {
-          reject(error)
-        }
-      })
-    }
-  })
-  return result
+  const tab = await getActivePageTab()
+  if (!tab) {
+    throw new Error("No page is open to capture")
+  }
+
+  return (await Promise.race([
+    browser.tabs.captureVisibleTab(null, { format: "png" }),
+    new Promise((_, timeout) =>
+      setTimeout(
+        () => timeout(new Error("Screenshot capture timed out")),
+        10000
+      )
+    )
+  ])) as string
 }
 
 export const getScreenshotFromCurrentTab = async () => {
