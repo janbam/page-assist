@@ -1,3 +1,5 @@
+import { getActivePageTab } from "@/libs/current-page-tab"
+
 export const isGoogleDocs = (url: string) => {
   const GOOGLE_DOCS_REGEX = /docs\.google\.com\/document/g
   return GOOGLE_DOCS_REGEX.test(url)
@@ -110,11 +112,15 @@ export const parseGoogleDocs = async () => {
         }
       })
     } else {
-      browser.tabs
-        .query({ active: true, currentWindow: true })
-        .then(async (tabs) => {
-          const tab = tabs[0]
+      // Same tab resolution as the other page readers: the background knows
+      // which page the user came from, the UI itself may be a tab or a popup.
+      getActivePageTab().then(async (tab) => {
+        if (!tab) {
+          resolve({ content: null })
+          return
+        }
 
+        try {
           const data = await browser.scripting.executeScript({
             target: { tabId: tab.id },
             func: getGoogleDocs
@@ -122,8 +128,14 @@ export const parseGoogleDocs = async () => {
 
           if (data.length > 0) {
             resolve(data[0].result)
+            return
           }
-        })
+          resolve({ content: null })
+        } catch (error) {
+          console.error("error", error)
+          resolve({ content: null })
+        }
+      })
     }
   }) as Promise<{
     content?: string

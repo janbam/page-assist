@@ -10,7 +10,7 @@
     "dev:edge": "cross-env TARGET=chrome wxt -b edge",
     "build": "bun build:chrome; bun build:firefox",
     "build:chrome": "cross-env TARGET=chrome wxt build",
-    "build:firefox": "cross-env TARGET=firefox wxt build -b firefox",
+    "build:firefox": "bun run zip:firefox && bun scripts/make-xpi.ts",
     "build:edge": "cross-env TARGET=chrome wxt build -b edge",
     "zip": "cross-env TARGET=chrome wxt zip",
     "zip:firefox": "cross-env TARGET=firefox wxt zip -b firefox",

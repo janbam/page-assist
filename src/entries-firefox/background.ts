@@ -6,6 +6,10 @@ import { getInitialConfig } from "@/services/action"
 import { getCustomCopilotPrompts, getCopilotPromptsEnabledState, type CustomCopilotPrompt } from "@/services/application"
 import { startMcpOAuthFlow, disconnectMcpOAuth } from "@/libs/mcp/oauth-flow"
 import { McpServerDb } from "@/db/dexie/mcp"
+import { initPageTabTracking, resolvePageTab } from "@/libs/current-page-tab"
+
+/** Keep the Android popup available for testing, but use a tab until its keyboard handling is verified. */
+const ANDROID_CHAT_POPUP_ENABLED = false
 
 export default defineBackground({
   main() {
@@ -15,6 +19,21 @@ export default defineBackground({
     let isCopilotRunning: boolean = false
     let actionIconClick: string = "webui"
     let contextMenuClick: string = "sidePanel"
+
+    /**
+     * Brings the chat up from script. Desktop Firefox opens its sidebar; where
+     * no sidebar API exists (Android) it uses a tab so the keyboard resizes the
+     * chat layout. The optional action popup is only used for add-on clicks.
+     */
+    const openChat = async () => {
+      if (!browser.sidebarAction) {
+        await browser.tabs.create({
+          url: browser.runtime.getURL("/sidepanel.html")
+        })
+        return
+      }
+      await browser.sidebarAction.open()
+    }
 
     let customCopilotMenuIds: string[] = []
     const builtinCopilotMenus = [
@@ -26,6 +45,12 @@ export default defineBackground({
     ]
 
     const createBuiltinCopilotMenus = async () => {
+      // No menu namespace on Android; these are also reached from settings
+      // refreshes, so guard here instead of only at startup.
+      if (!browser.contextMenus) {
+        return
+      }
+
       const enabledState = await getCopilotPromptsEnabledState()
 
       for (const menu of builtinCopilotMenus) {
@@ -48,6 +73,10 @@ export default defineBackground({
     }
 
     const createCustomCopilotMenus = async () => {
+      if (!browser.contextMenus) {
+        return
+      }
+
       // Remove existing custom copilot menus
       for (const menuId of customCopilotMenuIds) {
         try {
@@ -75,6 +104,15 @@ export default defineBackground({
 
     const initialize = async () => {
       try {
+        // Leave desktop action preferences alone; Android uses the keyboard-safe tab by default.
+        const { os } = await browser.runtime.getPlatformInfo()
+        if (os === "android") {
+          // An empty popup enables onClicked; retain the popup route for explicit browser testing.
+          await browser.browserAction.setPopup({
+            popup: ANDROID_CHAT_POPUP_ENABLED ? "sidepanel.html" : ""
+          })
+        }
+
         storage.watch({
           actionIconClick: (value) => {
             const oldValue = value?.oldValue || "webui"
@@ -84,6 +122,9 @@ export default defineBackground({
             }
           },
           contextMenuClick: (value) => {
+            if (!browser.contextMenus) {
+              return
+            }
             const oldValue = value?.oldValue || "sidePanel"
             const newValue = value?.newValue || "sidePanel"
             if (oldValue !== newValue) {
@@ -120,24 +161,32 @@ export default defineBackground({
         const data = await getInitialConfig()
         contextMenuClick = data.contextMenuClick
         actionIconClick = data.actionIconClick
-        browser.contextMenus.create({
-          id: contextMenuId[contextMenuClick],
-          title: contextMenuTitle[contextMenuClick],
-          contexts: ["page", "selection"]
-        })
+        // All three menu registrations below are desktop-only.
+        if (browser.contextMenus) {
+          browser.contextMenus.create({
+            id: contextMenuId[contextMenuClick],
+            title: contextMenuTitle[contextMenuClick],
+            contexts: ["page", "selection"]
+          })
 
-        // Create built-in copilot menus
-        await createBuiltinCopilotMenus()
+          // Create built-in copilot menus
+          await createBuiltinCopilotMenus()
 
-        // Create custom copilot menus
-        await createCustomCopilotMenus()
+          // Create custom copilot menus
+          await createCustomCopilotMenus()
+        }
       } catch (error) {
         console.error("Error in initLogic:", error)
       }
     }
 
     browser.runtime.onMessage.addListener(async (message, sender) => {
-      if (message.type === "refresh_custom_copilot_menus") {
+      if (message.type === "page_tab") {
+        // Extension pages ask here instead of querying tabs themselves: only
+        // the background remembers which tab the user actually came from.
+        // `null` instead of `undefined` so the reply is always sendable.
+        return (await resolvePageTab()) ?? null
+      } else if (message.type === "refresh_custom_copilot_menus") {
         await createCustomCopilotMenus()
         return Promise.resolve({ success: true })
       } else if (message.type === "refresh_builtin_copilot_menus") {
@@ -147,7 +196,7 @@ export default defineBackground({
         const enabled = await storage.get("youtubeAutoSummarize")
         return Promise.resolve({ enabled: enabled || false })
       } else if (message.type === "sidepanel") {
-        await browser.sidebarAction.open()
+        await openChat()
       } else if (message.type === "pull_model") {
         const ollamaURL = await getOllamaURL()
 
@@ -179,7 +228,7 @@ export default defineBackground({
         return Promise.resolve({ success: true })
       } else if (message.type === "youtube_summarize") {
         if (sender.tab?.id) {
-          await browser.sidebarAction.open()
+          await openChat()
         }
 
         setTimeout(
@@ -207,9 +256,12 @@ export default defineBackground({
     })
 
     browser.browserAction.onClicked.addListener((tab) => {
-      if (actionIconClick === "webui") {
+      // Android has no sidebar; open page chat in a tab regardless of the desktop action preference.
+      if (!browser.sidebarAction) {
+        return openChat()
+      } else if (actionIconClick === "webui") {
         browser.tabs.create({ url: browser.runtime.getURL("/options.html") })
-      } else {
+      } else if (browser.sidebarAction) {
         browser.sidebarAction.toggle()
       }
     })
@@ -224,7 +276,7 @@ export default defineBackground({
       sidePanel: "open-side-panel-pa"
     }
 
-    browser.contextMenus.onClicked.addListener((info, tab) => {
+    browser.contextMenus?.onClicked?.addListener((info, tab) => {
       if (info.menuItemId === "open-side-panel-pa") {
         browser.sidebarAction.toggle()
       } else if (info.menuItemId === "open-web-ui-pa") {
@@ -319,7 +371,8 @@ export default defineBackground({
       }
     })
 
-    browser.commands.onCommand.addListener((command) => {
+    // `commands` does not exist on Android either.
+    browser.commands?.onCommand?.addListener((command) => {
       switch (command) {
         case "execute_side_panel":
           browser.sidebarAction.toggle()
@@ -329,6 +382,7 @@ export default defineBackground({
       }
     })
 
+    initPageTabTracking()
     initialize()
   },
   persistent: true

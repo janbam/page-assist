@@ -9,6 +9,7 @@ import {
 import { isGoogleDocs, parseGoogleDocs } from "@/parser/google-docs"
 import { cleanUnwantedUnicode } from "@/utils/clean"
 import { isYoutubeLink } from "@/utils/is-youtube"
+import { getActivePageTab } from "@/libs/current-page-tab"
 
 const _getHtml = () => {
   const url = window.location.href
@@ -285,27 +286,24 @@ const _fetchTranscriptYT = async () => {
   return transcript
 }
 
+/** Fetches the YouTube transcript of the page tab, or "" when unavailable. */
 export const fetchTranscriptYT = async () => {
-  return new Promise<string>((resolve) => {
-    browser.tabs
-      .query({ active: true, currentWindow: true })
-      .then(async (tabs) => {
-        const tab = tabs[0]
-        try {
-          const data = await browser.scripting.executeScript({
-            target: { tabId: tab.id },
-            func: _fetchTranscriptYT
-          })
+  const tab = await getActivePageTab()
+  if (!tab) {
+    return ""
+  }
 
-          if (data.length > 0) {
-            resolve(data[0].result)
-          }
-        } catch (e) {
-          console.error("error", e)
-          resolve("")
-        }
-      })
-  })
+  try {
+    const data = await browser.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: _fetchTranscriptYT
+    })
+
+    return data.length > 0 ? data[0].result : ""
+  } catch (e) {
+    console.error("error", e)
+    return ""
+  }
 }
 
 export const getDataFromCurrentTab = async () => {
@@ -327,36 +325,40 @@ export const getDataFromCurrentTab = async () => {
         }
       })
     } else {
-      browser.tabs
-        .query({ active: true, currentWindow: true })
-        .then(async (tabs) => {
-          const tab = tabs[0]
-          try {
-            const data = await browser.scripting.executeScript({
-              target: { tabId: tab.id },
-              func: _getHtml
-            })
+      // Firefox resolves the page tab through the background script: on Android
+      // `currentWindow` is unimplemented and the chat opens as a fullscreen
+      // popup, so an active-tab query cannot name the page the user came from.
+      getActivePageTab().then(async (tab) => {
+        if (!tab) {
+          resolve({ url: "", content: "", type: "html" })
+          return
+        }
 
-            if (data.length > 0) {
-              resolve(data[0].result)
-            }
-          } catch (e) {
-            console.error("error", e)
-            // this is a weird method but it works
-            if (import.meta.env.BROWSER === "firefox") {
-              // all I need is to get the pdf url but somehow
-              // firefox won't allow extensions to run content scripts on pdf https://bugzilla.mozilla.org/show_bug.cgi?id=1454760
-              // so I set up a weird method to fix this issue by asking tab to give the url
-              // and then I can get the pdf url
-              const result = {
-                url: tab.url,
-                content: "",
-                type: "pdf"
-              }
-              resolve(result)
-            }
+        try {
+          const data = await browser.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: _getHtml
+          })
+
+          if (data.length > 0) {
+            resolve(data[0].result)
+            return
           }
-        })
+          resolve({ url: tab.url, content: "", type: "html" })
+        } catch (e) {
+          console.error("error", e)
+          // this is a weird method but it works
+          // all I need is to get the pdf url but somehow
+          // firefox won't allow extensions to run content scripts on pdf https://bugzilla.mozilla.org/show_bug.cgi?id=1454760
+          // so I set up a weird method to fix this issue by asking tab to give the url
+          // and then I can get the pdf url
+          resolve({
+            url: tab.url,
+            content: "",
+            type: "pdf"
+          })
+        }
+      })
     }
   }) as Promise<{
     url: string
