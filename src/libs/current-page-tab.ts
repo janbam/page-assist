@@ -46,11 +46,9 @@ const remember = (tab?: { id?: number; url?: string }) => {
  * script.
  *
  * The tracking exists because "the active tab" is not a reliable question:
- * Firefox for Android has no window model and opens the chat as a fullscreen
- * popup, so `tabs.query({ active: true, currentWindow: true })` cannot say
- * which page the user came from. Remembering the last non-extension tab keeps
- * page context working on mobile and is equivalent on desktop, where the side
- * panel is not a tab either.
+ * The Android chat is an extension tab, so querying the active tab would read
+ * the chat itself instead of the page the user came from. Remember that page
+ * for when resolvePageTab cannot find an active page in the current window.
  */
 export const initPageTabTracking = () => {
   browser.tabs.onActivated.addListener(({ tabId }) => {

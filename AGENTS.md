@@ -13,8 +13,8 @@ Node's default heap (~2 GB here) OOMs on production builds. Build with the `pabu
 
 ## Firefox for Android
 
-Mobile Firefox has no `sidebarAction`, no `commands`, no `contextMenus`, and no `windows` (all `false` in MDN's compat data for `firefox_android`), so `tabs.query({ active: true, currentWindow: true })` cannot be trusted there. The mobile chat therefore rides on `browser.browserAction.setPopup("sidepanel.html")`, which Firefox for Android renders as a fullscreen, URL-bar-less view. Page context keeps working because the background tracks the last non-extension tab (`src/libs/current-page-tab.ts`) and every page reader asks it instead of querying tabs itself.
+Keep Android chat in a normal tab by default. On the tested Nightly build, the fullscreen extension popup does not expose the keyboard's occupied space through viewport APIs, but a normal tab resizes correctly with `interactive-widget=resizes-content`. The popup route remains behind `ANDROID_CHAT_POPUP_ENABLED` in `src/entries-firefox/background.ts`; enable it only for explicit browser testing. This has not been compared with stable Firefox.
 
-Test on device with `web-ext run --target=firefox-android` over USB debugging, or sign an unlisted build on AMO and install it from a collection — Firefox for Android does not sideload XPI files.
+Preserve the background's source-page tracking (`src/libs/current-page-tab.ts`): when chat is active, an active-tab query names the chat itself. Keep sidebar, command, and context-menu API calls guarded on Android. For device debugging, Firefox's remote-debugging setting is named "via USB" but also works over wireless ADB and ADB tunnels. Unsigned installation on Nightly does not establish installability on stable Firefox.
 
 Firefox builds now also package: `bun run build:firefox` runs `wxt zip -b firefox` and copies the fresh `build/pageassist-<version>-firefox.zip` to `build/page-assist-firefox.xpi` via `scripts/make-xpi.ts`. The version-stamped zip stays in place next to it, together with the sources zip, because those are the AMO upload artifacts; the xpi is for loading the build locally.

@@ -8,6 +8,9 @@ import { startMcpOAuthFlow, disconnectMcpOAuth } from "@/libs/mcp/oauth-flow"
 import { McpServerDb } from "@/db/dexie/mcp"
 import { initPageTabTracking, resolvePageTab } from "@/libs/current-page-tab"
 
+/** Keep the Android popup available for testing, but use a tab until its keyboard handling is verified. */
+const ANDROID_CHAT_POPUP_ENABLED = false
+
 export default defineBackground({
   main() {
     const storage = new Storage({
@@ -19,8 +22,8 @@ export default defineBackground({
 
     /**
      * Brings the chat up from script. Desktop Firefox opens its sidebar; where
-     * no sidebar API exists (Android) it falls back to a tab, because script
-     * cannot open the action popup — that needs a real user gesture.
+     * no sidebar API exists (Android) it uses a tab so the keyboard resizes the
+     * chat layout. The optional action popup is only used for add-on clicks.
      */
     const openChat = async () => {
       if (!browser.sidebarAction) {
@@ -101,12 +104,13 @@ export default defineBackground({
 
     const initialize = async () => {
       try {
-        // Platform first: the menu setup below assumes a desktop browser.
+        // Leave desktop action preferences alone; Android uses the keyboard-safe tab by default.
         const { os } = await browser.runtime.getPlatformInfo()
         if (os === "android") {
-          // No sidebar on Android, so the add-on entry opens the chat as a
-          // fullscreen popup instead of the web UI.
-          await browser.browserAction.setPopup({ popup: "sidepanel.html" })
+          // An empty popup enables onClicked; retain the popup route for explicit browser testing.
+          await browser.browserAction.setPopup({
+            popup: ANDROID_CHAT_POPUP_ENABLED ? "sidepanel.html" : ""
+          })
         }
 
         storage.watch({
@@ -252,7 +256,10 @@ export default defineBackground({
     })
 
     browser.browserAction.onClicked.addListener((tab) => {
-      if (actionIconClick === "webui") {
+      // Android has no sidebar; open page chat in a tab regardless of the desktop action preference.
+      if (!browser.sidebarAction) {
+        return openChat()
+      } else if (actionIconClick === "webui") {
         browser.tabs.create({ url: browser.runtime.getURL("/options.html") })
       } else if (browser.sidebarAction) {
         browser.sidebarAction.toggle()
